@@ -1,6 +1,17 @@
 import logging
 import math
 import os
+
+from loguru import logger
+
+import searchGPU
+gpusindx = searchGPU.searchGPU()
+logger.info(f'Using GPU: {gpusindx}.')
+
+
+
+os.chdir(os.path.dirname(__file__))
+
 import pdb
 import sys
 from dataclasses import dataclass, field
@@ -50,12 +61,17 @@ class ModelArguments:
 
     # Huggingface's original arguments
     model_name_or_path: Optional[str] = field(
-        default=None,
+        default='/app/mypj/model/bert-base-uncased',
         metadata={
             "help": "The model checkpoint for weights initialization."
             "Don't set if you want to train a model from scratch."
         },
     )
+
+    rcl_lamal: float = field(
+         default=0.0, metadata={"help": "rcl"}
+    )
+
     model_type: Optional[str] = field(
         default=None,
         metadata={"help": "If training from scratch, pass a model type from the list: " + ", ".join(MODEL_TYPES)},
@@ -131,9 +147,11 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
+
+
     # Huggingface's original arguments. 
     dataset_name: Optional[str] = field(
-        default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
+        default='data/SynCSE-partial-NLI.csv', metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
     dataset_config_name: Optional[str] = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
@@ -148,7 +166,7 @@ class DataTrainingArguments:
         },
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=1,
+        default=10,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
 
@@ -195,6 +213,63 @@ class OurTrainingArguments(TrainingArguments):
         default=False,
         metadata={"help": "Evaluate transfer task dev sets (in validation)."}
     )
+
+    output_dir: Optional[str] = field(
+        default="result", metadata={"help": "The output directory where the model predictions and checkpoints will be written."}
+    )
+    overwrite_output_dir: bool = field(
+        default=False, metadata={"help": "Overwrite the content of the output directory"}
+    )
+
+    num_train_epochs: float = field(default=1.0, metadata={"help": "Total number of training epochs to perform."})
+
+    output_dir: Optional[str] = field(
+        default=r"result/my-unsup-simcse-bert-base-uncased",
+        metadata={"help": "The training data file (.txt or .csv)."}
+    )
+
+
+    per_device_train_batch_size: int = field(
+        default=128,
+        metadata={"help": "The batch size per GPU for training."}
+    )
+
+    learning_rate: float = field(
+        default=3e-5, metadata={"help": "The initial learning rate for Adam."}
+    )
+
+    load_best_model_at_end: bool = field(
+        default=False,
+        metadata={"help": "Whether or not to load the best model found during training at the end of training."},
+    )
+
+    evaluation_strategy: str = field(
+        default="steps",
+        metadata={"help": "The evaluation strategy to use."},
+    )
+
+    metric_for_best_model: str = field(
+        default="stsb_spearman",
+        # default="avg_sts",
+        metadata={"help": "The metric to use to compare two different models."},
+    )
+
+    eval_steps: int = field(
+        default=1, metadata={"help": "Run an evaluation every X steps."}
+    )
+
+    overwrite_output_dir: bool = field(
+        default=False,
+        metadata={"help": "Overwrite the content of the output directory."},
+    )
+
+
+    do_train: bool = field(default=False, metadata={"help": "Whether to run training."})
+
+    fp16: bool = field(default=False, metadata={"help": "Whether to use 16-bit (mixed) precision training."})
+
+    seed: int = field(default=42, metadata={"help": "random seed for initialization"})
+
 
     @cached_property
     @torch_required
@@ -245,18 +320,113 @@ class OurTrainingArguments(TrainingArguments):
         return device
 
 
-def main():
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, OurTrainingArguments))
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script and it's the path to a json file,
-        # let's parse it to get our arguments.
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
-    else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+def main(model_args, data_args, training_args,rcl_lamal=1.8,use_vscode=True):
+
+
+    ''''
+    --model_name_or_path ${model} \
+    --train_file  ${dataset} \
+    --output_dir result/my-sup-simcse \
+    --num_train_epochs 3 \
+    --per_device_train_batch_size 512 \
+    --learning_rate 3e-5 \
+    --max_seq_length 32 \
+    --evaluation_strategy steps \
+    --metric_for_best_model avg_sts \
+    --load_best_model_at_end \
+    --eval_steps 25 \
+    --pooler_type cls \
+    --overwrite_output_dir \
+    --temp 0.05 \
+    --do_train \
+    --do_eval \
+    --fp16 \
+    --seed 42 \
+    --do_mlm \
+    --hard_negative_weight 0 \
+    "$@"
+    '''
+    model_args.rcl_lamal = rcl_lamal
+
+    # use_vscode = True
+    if use_vscode:
+        model_args.rcl_lamal = 1.6
+        # model_args.model_name_or_path = "/H7/mypj/models/roberta-large"
+        model_args.model_name_or_path = "/H7/mypj/models/roberta-base"
+        # model_args.model_name_or_path = "/H7/mypj/models/bert-base-uncased"
+        # model_args.model_name_or_path = "/H7/mypj/models/bert-large-uncased"
+
+        # data_args.train_file = "data/SynCSE-partial-NLI.csv"
+        # data_args.train_file = "data/SynCSE-scratch-NLI.csv"
+
+        data_args.train_file = "data/SumCSE.csv"
+        # data_args.train_file = "data/simple_data.csv"
+
+        
+        training_args.output_dir = "result/rankingcse_1.6_roberta-base_SumCSE_512batch_3epoch"
+        # training_args.output_dir = "result/SumCSE-reberta-base"
+
+        training_args.num_train_epochs = 3
+        training_args.per_device_train_batch_size = 512
+        training_args.learning_rate = 3e-5
+        training_args.eval_steps = 25
+
+        training_args.scorce_recover_dir = "result.txt"
+
+        data_args.max_seq_length = 32
+
+
+        # training_args.evaluation_strategy = "steps"
+        training_args.metric_for_best_model = "avg_sts"
+        # training_args.metric_for_best_model = "stsb_spearman"
+
+
+
+        training_args.load_best_model_at_end = True
+        model_args.pooler_type = "cls"
+        training_args.overwrite_output_dir = True
+        training_args.temp = 0.05
+        training_args.do_train = True
+        training_args.do_eval = True
+        training_args.fp16 = True
+        training_args.seed = 42
+        model_args.do_mlm = False
+        training_args.hard_negative_weight = 0
+
+        training_args.logging_steps=int(training_args.eval_steps/5)
+        # training_args.logging_steps=int(125)
+
+
+    print("*************training_args***********")
+    print(training_args)
+    print("*************training_args***********")
+
+    print("*************model_args***********")
+    print(model_args)
+    print("*************model_args***********")
+
+    print("*************data_args***********")
+    print(data_args)
+    print("*************data_args***********")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     if (
         os.path.exists(training_args.output_dir)
@@ -301,19 +471,22 @@ def main():
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
     data_files = {}
-
     if data_args.train_file is not None:
         data_files["train"] = data_args.train_file
     extension = data_args.train_file.split(".")[-1]
     if extension == "txt":
-        extension = "text"
+        extension = "datatools/text.py"
     if extension == "csv":
-        datasets = load_dataset(extension, data_files=data_files, cache_dir="./data/", delimiter="\t" if "tsv" in data_args.train_file else ",")
+        extension = "datatools/csv.py"
+        datasets = load_dataset("csv", data_files=data_files,cache_dir="./data/", delimiter="\t" if "tsv" in data_args.train_file else ",")
     else:
-        print("load huggging face dataset")
-        datasets = load_dataset(data_args.train_file, cache_dir="./data/")
+        datasets = load_dataset("txt", data_files=data_files, cache_dir="./data/")
+
 
     datasets = datasets.shuffle(seed=42)
+
+
+
     #datasets['train'] = datasets["train"].select(range(275497))
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
@@ -413,20 +586,27 @@ def main():
         # padding = max_length (when pad_to_max_length, for pressure test)
         #   All sentences are padded/truncated to data_args.max_seq_length.
         SUP=True
+        SUP = False 
+
         total = len(examples[sent0_cname])
+        # total = 256
+
         # Avoid "None" fields 
         for idx in range(total):
             if examples[sent0_cname][idx] is None:
                 examples[sent0_cname][idx] = " "
             if examples[sent1_cname][idx] is None:
                 examples[sent1_cname][idx] = " "
-        sentences = examples[sent0_cname] + examples[sent1_cname]
+        sentences = examples[sent0_cname] + examples[sent1_cname] 
         # If hard negative exists
-        if sent2_cname is not None and SUP:
+        if sent2_cname is not None:
             for idx in range(total):
                 if examples[sent2_cname][idx] is None:
                     examples[sent2_cname][idx] = " "
             sentences += examples[sent2_cname]
+
+        if SUP:
+            sentences += examples[sent0_cname]
 
         sent_features = tokenizer(
             sentences,
@@ -435,7 +615,11 @@ def main():
             padding="max_length" if data_args.pad_to_max_length else False,
         )
         features = {}
-        if sent2_cname is not None and SUP:
+        if SUP:
+            for key in sent_features:
+                features[key] = [[sent_features[key][i], sent_features[key][i+total], sent_features[key][i+total*2],sent_features[key][i+total*3]] for i in range(total)]
+
+        elif sent2_cname is not None:
             for key in sent_features:
                 features[key] = [[sent_features[key][i], sent_features[key][i+total], sent_features[key][i+total*2]] for i in range(total)]
         else:
@@ -567,15 +751,25 @@ def main():
     results = {}
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
-        results = trainer.evaluate(eval_senteval_transfer=True)
+        import evaluation
+        scores = evaluation.main(training_args.output_dir)
+        file = open(training_args.scorce_recover_dir,"a")
+        file.write(str(model_args.rcl_lamal)+"\t\t\t\t"+str(scores))
+        file.write("\n")
+        file.close
 
-        output_eval_file = os.path.join(training_args.output_dir, "eval_results.txt")
-        if trainer.is_world_process_zero():
-            with open(output_eval_file, "w") as writer:
-                logger.info("***** Eval results *****")
-                for key, value in sorted(results.items()):
-                    logger.info(f"  {key} = {value}")
-                    writer.write(f"{key} = {value}\n")
+        
+
+
+        # results = trainer.evaluate(eval_senteval_transfer=True)
+
+        # output_eval_file = os.path.join(training_args.output_dir, "eval_results.txt")
+        # if trainer.is_world_process_zero():
+        #     with open(output_eval_file, "w") as writer:
+        #         logger.info("***** Eval results *****")
+        #         for key, value in sorted(results.items()):
+        #             logger.info(f"  {key} = {value}")
+        #             writer.write(f"{key} = {value}\n")
 
     return results
 
@@ -585,4 +779,26 @@ def _mp_fn(index):
 
 
 if __name__ == "__main__":
-    main()
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, OurTrainingArguments))
+        # parser = HfArgumentParser((ModelArguments, DataTrainingArguments, OurTrainingArguments))
+    # See all possible arguments in src/transformers/training_args.py
+    # or by passing the --help flag to this script.
+    # We now keep distinct sets of args, for a cleaner separation of concerns.
+
+    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
+        # If we pass only one argument to the script and it's the path to a json file,
+        # let's parse it to get our arguments.
+        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    else:
+        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+
+    main(model_args, data_args, training_args)
+
+    # import evaluation
+    # scores = evaluation.main(training_args.output_dir)
+
+
+
+
+
