@@ -103,4 +103,3 @@ bootstrap p(one-tailed): 0.000e+00
 95.0% CI of Delta: [4.7859%, 5.8900%]
 Result: PASS
 ```
-> （注：文档部分内容可能由 AI 生成）
